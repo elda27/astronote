@@ -18,6 +18,9 @@ def notebook_entry(func: F | None = None, **_: Any):
     if func is None:
         return decorate
     return decorate(func)
+from astronote.decorators import NOTEBOOK_ENTRY_ATTR, notebook_entry
+
+__all__ = ["NOTEBOOK_ENTRY_ATTR", "main", "notebook_entry"]
 
 
 def main() -> None:
