@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from astronote.ir import (
     DecoratorIR,
@@ -22,8 +22,23 @@ def _annotation_to_str(node: ast.expr | None) -> str | None:
     return ast.unparse(node) if node is not None else None
 
 
-def _expr_to_str(node: ast.expr | None) -> str | None:
-    return ast.unparse(node) if node is not None else None
+def _expr_to_value(node: ast.expr | None) -> Any:
+    """Return an evaluated Python value for a default expression.
+
+    For literal constants (numbers, strings, booleans, None, and simple
+    collections thereof) the actual Python value is returned so that
+    downstream consumers receive typed data.  For non-literal expressions
+    (e.g. function calls, names) the source-level string produced by
+    ``ast.unparse`` is used as a fallback.
+    """
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant):
+        return node.value
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError):
+        return ast.unparse(node)
 
 
 def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSignatureIR:
@@ -37,7 +52,7 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
                 name=arg.arg,
                 kind="positional",
                 annotation=_annotation_to_str(arg.annotation),
-                default=_expr_to_str(default),
+                default=_expr_to_value(default),
             ),
         )
 
@@ -56,7 +71,7 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
                 name=arg.arg,
                 kind="kwonly",
                 annotation=_annotation_to_str(arg.annotation),
-                default=_expr_to_str(default),
+                default=_expr_to_value(default),
             ),
         )
 
@@ -80,6 +95,20 @@ def analyze_python_file(path: str | Path) -> StaticIR:
     functions = []
     entrypoints = []
     unsupported: list[UnsupportedCase] = []
+
+    for reason, import_node in alias_map.skipped:
+        unsupported.append(
+            UnsupportedCase(
+                message=reason,
+                location=SourceLocation(
+                    path=str(source_path),
+                    lineno=import_node.lineno,
+                    end_lineno=getattr(import_node, "end_lineno", import_node.lineno),
+                    col_offset=import_node.col_offset,
+                    end_col_offset=getattr(import_node, "end_col_offset", import_node.col_offset),
+                ),
+            ),
+        )
 
     for node in module.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -161,7 +190,7 @@ def resolve_parameters(
 
     overrides = cli_overrides or {}
     resolved_parameters: dict[str, Any] = {}
-    sources: dict[str, str] = {}
+    sources: dict[str, Literal["cli_override", "parameter_json", "signature_default"]] = {}
 
     for arg in function.signature.args:
         if arg.name in file_parameters:
