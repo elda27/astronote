@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from astronote!")
+__all__: list[str] = []
