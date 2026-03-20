@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                 parameter_file=args.parameter_file,
                 cli_overrides=parse_cli_overrides(args.override),
             )
-            print(json.dumps(resolution.schema.as_dict(), indent=2, ensure_ascii=False))
+            print(json.dumps(resolution.parameter_schema.as_dict(), indent=2, ensure_ascii=False))
         output_path = generate_notebook(analysis, entrypoint, args.parameter_file, args.override, args.output)
     except CliError as exc:
         raise SystemExit(str(exc)) from exc

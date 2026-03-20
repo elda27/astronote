@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
+
+from pydantic import Field
+
+from astronote._model import FrozenModel
 
 
-@dataclass(frozen=True)
-class SourceLocation:
+class SourceLocation(FrozenModel):
     path: str
     lineno: int
     end_lineno: int
@@ -13,8 +15,7 @@ class SourceLocation:
     end_col_offset: int
 
 
-@dataclass(frozen=True)
-class DecoratorIR:
+class DecoratorIR(FrozenModel):
     raw: str
     kind: Literal["entrypoint", "non_entrypoint", "unsupported"]
     resolved_name: str | None = None
@@ -23,8 +24,7 @@ class DecoratorIR:
     reason: str | None = None
 
 
-@dataclass(frozen=True)
-class FunctionArgIR:
+class FunctionArgIR(FrozenModel):
     name: str
     kind: Literal["positional", "kwonly", "vararg", "kwarg"]
     annotation: str | None = None
@@ -32,20 +32,17 @@ class FunctionArgIR:
     has_default: bool = False
 
 
-@dataclass(frozen=True)
-class FunctionSignatureIR:
+class FunctionSignatureIR(FrozenModel):
     args: list[FunctionArgIR]
     return_annotation: str | None = None
 
 
-@dataclass(frozen=True)
-class UnsupportedCase:
+class UnsupportedCase(FrozenModel):
     message: str
     location: SourceLocation
 
 
-@dataclass(frozen=True)
-class StaticFunctionIR:
+class StaticFunctionIR(FrozenModel):
     name: str
     signature: FunctionSignatureIR
     location: SourceLocation
@@ -53,21 +50,21 @@ class StaticFunctionIR:
     is_entrypoint: bool = False
 
 
-@dataclass(frozen=True)
-class StaticIR:
-    @dataclass(frozen=True)
-    class Function(StaticFunctionIR):
-        pass
+class StaticFunction(StaticFunctionIR):
+    pass
+
+
+class StaticIR(FrozenModel):
+    Function: ClassVar[type[StaticFunction]] = StaticFunction
 
     module_path: str
     import_aliases: dict[str, str]
     functions: list[StaticFunctionIR]
     entrypoints: list[str]
-    unsupported: list[UnsupportedCase] = field(default_factory=list)
+    unsupported: list[UnsupportedCase] = Field(default_factory=list)
 
 
-@dataclass(frozen=True)
-class ResolvedIR:
+class ResolvedIR(FrozenModel):
     static_ir: StaticIR
     entrypoint_name: str
     signature: FunctionSignatureIR

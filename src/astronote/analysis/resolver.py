@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 from typing import Literal
+
+from astronote._model import FrozenModel
 
 
 class DecoratorResolutionError(ValueError):
     """Raised when a decorator cannot be statically resolved."""
 
 
-@dataclass(frozen=True)
-class DecoratorResolution:
+class DecoratorResolution(FrozenModel):
     raw: str
     kind: Literal["entrypoint", "non_entrypoint", "unsupported"]
     resolved_name: str | None = None

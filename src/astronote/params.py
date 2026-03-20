@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from astronote._model import FrozenModel
 from astronote.ir import FunctionSignatureIR, ResolvedIR, StaticIR
 
 
@@ -12,8 +12,7 @@ class ParameterFileError(ValueError):
     """Raised when a parameter file or CLI override cannot be resolved."""
 
 
-@dataclass(frozen=True)
-class ParameterField:
+class ParameterField(FrozenModel):
     name: str
     annotation: str | None
     required: bool
@@ -21,8 +20,7 @@ class ParameterField:
     default: Any = None
 
 
-@dataclass(frozen=True)
-class ParameterSchema:
+class ParameterSchema(FrozenModel):
     entrypoint: str
     fields: list[ParameterField]
 
@@ -42,18 +40,16 @@ class ParameterSchema:
         }
 
 
-@dataclass(frozen=True)
-class LoadedParameters:
+class LoadedParameters(FrozenModel):
     values: dict[str, Any]
     source_path: str | None
-    schema: ParameterSchema
+    parameter_schema: ParameterSchema
 
 
-@dataclass(frozen=True)
-class ParameterResolution:
+class ParameterResolution(FrozenModel):
     resolved_ir: ResolvedIR
     parameter_file: str | None
-    schema: ParameterSchema
+    parameter_schema: ParameterSchema
     cli_overrides: dict[str, Any]
 
 
@@ -91,13 +87,13 @@ def load_parameter_file(
     function = _function_for_entrypoint(static_ir, entrypoint)
     schema = build_parameter_schema(function.signature, entrypoint=entrypoint)
     if parameter_file is None:
-        return LoadedParameters(values={}, source_path=None, schema=schema)
+        return LoadedParameters(values={}, source_path=None, parameter_schema=schema)
 
     path = Path(parameter_file)
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ParameterFileError("Parameter JSON must decode to an object.")
-    return LoadedParameters(values=payload, source_path=str(path), schema=schema)
+    return LoadedParameters(values=payload, source_path=str(path), parameter_schema=schema)
 
 
 def parse_cli_overrides(overrides: list[str]) -> dict[str, Any]:
@@ -135,6 +131,6 @@ def resolve_entrypoint_parameters(
     return ParameterResolution(
         resolved_ir=resolved_ir,
         parameter_file=loaded.source_path,
-        schema=loaded.schema,
+        parameter_schema=loaded.parameter_schema,
         cli_overrides=overrides,
     )

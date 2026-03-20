@@ -1,35 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from astronote import __version__
+from astronote._model import FrozenModel
 from astronote.params import ParameterResolution
 
 
-@dataclass(frozen=True)
-class Manifest:
+class Manifest(FrozenModel):
     source_path: str
     entrypoint: str
     generated_at: str
     tool_version: str
     parameters: dict[str, Any]
-    parameter_sources: dict[str, str]
+    parameter_sources: dict[str, Literal["cli_override", "parameter_json", "signature_default"]]
     parameter_file: str | None
     parameter_schema: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            "source_path": self.source_path,
-            "entrypoint": self.entrypoint,
-            "generated_at": self.generated_at,
-            "tool_version": self.tool_version,
-            "parameter_file": self.parameter_file,
-            "parameters": self.parameters,
-            "parameter_sources": self.parameter_sources,
-            "parameter_schema": self.parameter_schema,
-        }
+        return self.model_dump(mode="python")
 
 
 def build_manifest(source_path: str, resolution: ParameterResolution) -> Manifest:
@@ -42,5 +32,5 @@ def build_manifest(source_path: str, resolution: ParameterResolution) -> Manifes
         parameter_file=resolution.parameter_file,
         parameters=resolved_ir.resolved_parameters,
         parameter_sources=resolved_ir.parameter_sources,
-        parameter_schema=resolution.schema.as_dict(),
+        parameter_schema=resolution.parameter_schema.as_dict(),
     )

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
 import re
 from typing import Any
+
+from astronote._model import FrozenModel
 
 
 GENERATED_CELL_METADATA_KEY = "astronote"
@@ -51,8 +52,7 @@ def _normalize_lines(source: str | list[str]) -> list[str]:
     return [source]
 
 
-@dataclass(frozen=True)
-class _ResolvedNotebookConfig:
+class _ResolvedNotebookConfig(FrozenModel):
     script_path: str | None
     parameter_path: str | None
     source_import: str | None
