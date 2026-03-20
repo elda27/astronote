@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
+import re
 from typing import Any
 
 
@@ -12,10 +14,30 @@ GENERATED_NOTEBOOK_VERSION = 1
 def _read_field(value: Any, *names: str, default: Any = None) -> Any:
     for name in names:
         if isinstance(value, dict) and name in value:
-            return value[name]
-        if hasattr(value, name):
-            return getattr(value, name)
+            candidate = value[name]
+        elif hasattr(value, name):
+            candidate = getattr(value, name)
+        else:
+            continue
+        if candidate is not None:
+            return candidate
     return default
+
+
+def _module_from_path(script_path: str | None) -> str | None:
+    """Convert a script path like 'myproj/train.py' to module name 'myproj.train'."""
+    if not script_path:
+        return None
+    root, _ = os.path.splitext(script_path)
+    module = root.replace(os.sep, ".").replace("/", ".").replace("\\", ".")
+    return module or None
+
+
+def _sanitize_cell_id(cell_id: str) -> str:
+    """Produce an nbformat-compatible cell id (max 64 chars, [a-zA-Z0-9_-] only)."""
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', cell_id)
+    sanitized = re.sub(r'-{2,}', '-', sanitized).strip('-')
+    return sanitized[:64] or "cell"
 
 
 def _normalize_lines(source: str | list[str]) -> list[str]:
@@ -169,6 +191,7 @@ class NotebookBuilder:
 
     def _build_cells(self, config: _ResolvedNotebookConfig) -> list[dict[str, Any]]:
         cells: list[dict[str, Any]] = []
+        source_module = _module_from_path(config.script_path)
 
         for index, markdown_source in enumerate(config.markdown_cells):
             cells.append(
@@ -176,6 +199,7 @@ class NotebookBuilder:
                     markdown_source,
                     cell_id=f"markdown-{index}",
                     cell_role="context",
+                    source_module=source_module,
                 )
             )
 
@@ -185,6 +209,7 @@ class NotebookBuilder:
                     f"> Generated from `{config.script_path}`.\n",
                     cell_id="script-reference",
                     cell_role="script_reference",
+                    source_module=source_module,
                 )
             )
 
@@ -197,6 +222,8 @@ class NotebookBuilder:
                     parameter_source,
                     cell_id="parameters",
                     cell_role="parameters",
+                    source_module=source_module,
+                    tags=["parameters"],
                 )
             )
 
@@ -206,6 +233,7 @@ class NotebookBuilder:
                     config.source_import,
                     cell_id="source-import",
                     cell_role="source_import",
+                    source_module=source_module,
                 )
             )
 
@@ -214,6 +242,7 @@ class NotebookBuilder:
                 config.entrypoint_call,
                 cell_id="entrypoint",
                 cell_role="entrypoint",
+                source_module=source_module,
             )
         )
         cells.append(
@@ -221,6 +250,7 @@ class NotebookBuilder:
                 self._generated_metadata_source(config),
                 cell_id="generated-metadata",
                 cell_role="generated_metadata",
+                source_module=source_module,
             )
         )
         return cells
@@ -236,28 +266,80 @@ class NotebookBuilder:
         ]
         return "\n".join(lines) + "\n"
 
-    def _base_metadata(self, *, cell_id: str, cell_role: str) -> dict[str, Any]:
-        return {
-            self.generated_cell_metadata_key: {
-                "generated": True,
-                "cell_id": cell_id,
-                "role": cell_role,
-            }
-        }
+    def _full_cell_id(
+        self, cell_id: str, cell_role: str, source_module: str | None
+    ) -> str:
+        """Build the structured cell id encoding module identity and semantic kind.
 
-    def _code_cell(self, source: str | list[str], *, cell_id: str, cell_role: str) -> dict[str, Any]:
+        For indexed cells (e.g. markdown-0) the slot is appended to guarantee
+        uniqueness when multiple cells share the same role.
+        """
+        role_slug = cell_role.replace("_", "-")
+        base = (
+            f"mod:{source_module}|kind:{cell_role}"
+            if source_module
+            else f"kind:{cell_role}"
+        )
+        if cell_id != role_slug and cell_id != cell_role:
+            base = f"{base}|slot:{cell_id}"
+        return base
+
+    def _base_metadata(
+        self, *, cell_id: str, cell_role: str, source_module: str | None = None
+    ) -> dict[str, Any]:
+        full_id = self._full_cell_id(cell_id, cell_role, source_module)
+        astronote_meta: dict[str, Any] = {
+            "generated": True,
+            "cell_id": full_id,
+            "role": cell_role,
+        }
+        if source_module:
+            astronote_meta["source_module"] = source_module
+        return {self.generated_cell_metadata_key: astronote_meta}
+
+    def _code_cell(
+        self,
+        source: str | list[str],
+        *,
+        cell_id: str,
+        cell_role: str,
+        source_module: str | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        metadata = self._base_metadata(
+            cell_id=cell_id, cell_role=cell_role, source_module=source_module
+        )
+        if tags:
+            metadata["tags"] = tags
+        nbformat_id = _sanitize_cell_id(
+            self._full_cell_id(cell_id, cell_role, source_module)
+        )
         return {
             "cell_type": "code",
+            "id": nbformat_id,
             "execution_count": None,
-            "metadata": self._base_metadata(cell_id=cell_id, cell_role=cell_role),
+            "metadata": metadata,
             "outputs": [],
             "source": _normalize_lines(source),
         }
 
-    def _markdown_cell(self, source: str | list[str], *, cell_id: str, cell_role: str) -> dict[str, Any]:
+    def _markdown_cell(
+        self,
+        source: str | list[str],
+        *,
+        cell_id: str,
+        cell_role: str,
+        source_module: str | None = None,
+    ) -> dict[str, Any]:
+        nbformat_id = _sanitize_cell_id(
+            self._full_cell_id(cell_id, cell_role, source_module)
+        )
         return {
             "cell_type": "markdown",
-            "metadata": self._base_metadata(cell_id=cell_id, cell_role=cell_role),
+            "id": nbformat_id,
+            "metadata": self._base_metadata(
+                cell_id=cell_id, cell_role=cell_role, source_module=source_module
+            ),
             "source": _normalize_lines(source),
         }
 
