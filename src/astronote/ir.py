@@ -28,7 +28,7 @@ class FunctionArgIR:
     name: str
     kind: Literal["positional", "kwonly", "vararg", "kwarg"]
     annotation: str | None = None
-    default: str | None = None
+    default: Any = None
 
 
 @dataclass(frozen=True)

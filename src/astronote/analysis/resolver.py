@@ -4,11 +4,6 @@ import ast
 from dataclasses import dataclass
 from typing import Literal
 
-NOTEBOOK_ENTRY_IMPORTS = {
-    "astronote.notebook_entry",
-    "astronote",
-}
-
 
 class DecoratorResolutionError(ValueError):
     """Raised when a decorator cannot be statically resolved."""
@@ -27,10 +22,16 @@ class DecoratorResolution:
 class ImportAliasMap:
     def __init__(self) -> None:
         self._aliases: dict[str, str] = {}
+        self._skipped: list[tuple[str, ast.stmt]] = []
 
     @property
     def aliases(self) -> dict[str, str]:
         return dict(self._aliases)
+
+    @property
+    def skipped(self) -> list[tuple[str, ast.stmt]]:
+        """Unsupported import statements that could not be resolved."""
+        return list(self._skipped)
 
     def register_import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -39,16 +40,19 @@ class ImportAliasMap:
 
     def register_import_from(self, node: ast.ImportFrom) -> None:
         if node.level != 0:
-            raise DecoratorResolutionError(
-                "Relative imports are unsupported for decorator resolution.",
+            self._skipped.append(
+                ("Relative imports are unsupported for decorator resolution.", node),
             )
+            return
         if node.module is None:
-            raise DecoratorResolutionError(
-                "Dynamic import-from statements are unsupported.",
+            self._skipped.append(
+                ("Dynamic import-from statements are unsupported.", node),
             )
+            return
         for alias in node.names:
             if alias.name == "*":
-                raise DecoratorResolutionError("Star imports are unsupported.")
+                self._skipped.append(("Star imports are unsupported.", node))
+                return
             name = alias.asname or alias.name
             self._aliases[name] = f"{node.module}.{alias.name}"
 
@@ -103,15 +107,10 @@ def resolve_notebook_entry_decorator(
             is_call=is_call,
         )
 
-    if resolved in NOTEBOOK_ENTRY_IMPORTS and isinstance(target, ast.Attribute) and target.attr == "notebook_entry":
-        return DecoratorResolution(
-            raw=ast.unparse(decorator),
-            kind="entrypoint",
-            resolved_name="astronote.notebook_entry",
-            is_call=is_call,
-        )
-
-    if resolved.endswith("notebook_entry") and resolved != "astronote.notebook_entry":
+    # Only treat as unsupported re-export when the resolved name is qualified
+    # (contains a module path), to avoid false positives for locally-defined
+    # decorators that happen to be named notebook_entry.
+    if resolved.endswith("notebook_entry") and "." in resolved:
         return DecoratorResolution(
             raw=ast.unparse(decorator),
             kind="unsupported",
