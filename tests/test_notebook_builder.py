@@ -48,6 +48,8 @@ def test_builder_outputs_required_cells_and_metadata() -> None:
         "generated_metadata",
     ]
     assert cells[2]["source"] == ["run_date = '2026-03-20'\n", "mode = 'dev'\n"]
+    # The parameters cell must be tagged with "parameters" for Papermill compatibility.
+    assert "parameters" in cells[2]["metadata"].get("tags", [])
     assert cells[3]["source"] == ["from pipelines.example import main\n"]
     assert cells[4]["source"] == ["main(run_date=run_date, mode=mode)\n"]
     assert "READ_ONLY = True" in "".join(cells[5]["source"])
