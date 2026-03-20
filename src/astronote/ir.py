@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from astronote._model import FrozenModel
+
+class FrozenModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class SourceLocation(FrozenModel):
@@ -69,4 +71,6 @@ class ResolvedIR(FrozenModel):
     entrypoint_name: str
     signature: FunctionSignatureIR
     resolved_parameters: dict[str, Any]
-    parameter_sources: dict[str, Literal["cli_override", "parameter_json", "signature_default"]]
+    parameter_sources: dict[
+        str, Literal["cli_override", "parameter_json", "signature_default"]
+    ]
