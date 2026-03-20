@@ -4,6 +4,7 @@ import argparse
 import ast
 import importlib.util
 import json
+import tokenize
 from pathlib import Path
 from typing import Any
 
@@ -109,12 +110,24 @@ def _is_candidate_entrypoint(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bo
 
 def analyze_source(source: str) -> dict[str, Any]:
     target = resolve_source_target(source)
-    try:
-        code = target["file_path"].read_text(encoding="utf-8")
-    except OSError as exc:
+    file_path: Path = target["file_path"]
+    if file_path.suffix != ".py":
         raise AnalysisError(
-            f"Failed to analyze target '{target['file_path']}': {exc}. "
+            f"Failed to analyze target '{file_path}': only .py source files are supported. "
+            "Detected entrypoints: none. Next step: pass a .py script path or an importable module path."
+        )
+    try:
+        with tokenize.open(str(file_path)) as fh:
+            code = fh.read()
+    except (OSError, SyntaxError) as exc:
+        raise AnalysisError(
+            f"Failed to analyze target '{file_path}': {exc}. "
             "Detected entrypoints: none. Next step: verify the file is readable and rerun the command."
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise AnalysisError(
+            f"Failed to analyze target '{file_path}': unable to decode source ({exc}). "
+            "Detected entrypoints: none. Next step: ensure the file is saved with a supported encoding."
         ) from exc
 
     try:
@@ -243,6 +256,12 @@ def resolve_parameters(raw_parameters: str | None, overrides: list[str], analysi
                 f"Detected entrypoints: {detected}. Next step: pass --override KEY=JSON."
             )
         key, raw_value = override.split('=', 1)
+        if not key or any(segment == "" for segment in key.split('.')):
+            raise ParameterResolutionError(
+                f"Failed to resolve parameters for '{target}': override key '{key}' is invalid "
+                "(key must be non-empty and each dot-separated segment must be non-empty). "
+                f"Detected entrypoints: {detected}. Next step: pass --override KEY=JSON with a valid dot-path key."
+            )
         try:
             value = json.loads(raw_value)
         except json.JSONDecodeError as exc:
@@ -271,21 +290,26 @@ def generate_notebook(ir: dict[str, Any], parameters: dict[str, Any], output_pat
                 "cell_type": "markdown",
                 "metadata": {},
                 "source": [
-                    "# astronote export\\n",
-                    f"- Source: `{source_ref}`\\n",
-                    f"- Entrypoint: `{ir['entrypoint']}`\\n",
+                    "# astronote export\n",
+                    f"- Source: `{source_ref}`\n",
+                    f"- Entrypoint: `{ir['entrypoint']}`\n",
                 ],
             },
             {
                 "cell_type": "code",
                 "execution_count": None,
-                "metadata": {},
+                "metadata": {
+                    "astronote": {
+                        "ir": ir,
+                        "parameters": parameters,
+                    },
+                },
                 "outputs": [],
                 "source": [
-                    "import json\\n",
-                    f"PARAMETERS = {json.dumps(parameters, indent=2, ensure_ascii=False)}\\n",
-                    f"SOURCE = {source_ref!r}\\n",
-                    f"ENTRYPOINT = {ir['entrypoint']!r}\\n",
+                    "import json\n",
+                    f"PARAMETERS = {repr(parameters)}\n",
+                    f"SOURCE = {source_ref!r}\n",
+                    f"ENTRYPOINT = {ir['entrypoint']!r}\n",
                 ],
             },
         ],
@@ -298,10 +322,6 @@ def generate_notebook(ir: dict[str, Any], parameters: dict[str, Any], output_pat
             "language_info": {
                 "name": "python",
                 "version": "3.12",
-            },
-            "astronote": {
-                "ir": ir,
-                "parameters": parameters,
             },
         },
         "nbformat": 4,
