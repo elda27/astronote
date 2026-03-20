@@ -59,6 +59,7 @@ class _ResolvedNotebookConfig:
     entrypoint_call: str
     parameters_source: str | None
     generated_at: str | None
+    manifest: dict[str, Any]
     read_only: bool
     script_first: bool
     kernel_name: str
@@ -119,6 +120,7 @@ class _ResolvedNotebookConfig:
                 "generated_at_utc",
                 default=None,
             ),
+            manifest=_read_field(resolved_ir, "manifest", default={}) or {},
             read_only=bool(_read_field(notebook, "read_only", default=False)),
             script_first=bool(_read_field(notebook, "script_first", default=True)),
             kernel_name=_read_field(metadata, "kernel_name", default="python3"),
@@ -181,6 +183,7 @@ class NotebookBuilder:
                 "read_only": config.read_only,
                 "source_script": config.script_path,
                 "parameter_file": config.parameter_path,
+                "manifest": config.manifest,
             },
         }
         if config.language_version:
@@ -263,6 +266,7 @@ class NotebookBuilder:
             f"SOURCE_SCRIPT = {config.script_path!r}",
             f"PARAMETER_FILE = {config.parameter_path!r}",
             f"GENERATED_AT = {config.generated_at!r}",
+            f"MANIFEST = {config.manifest!r}",
         ]
         return "\n".join(lines) + "\n"
 

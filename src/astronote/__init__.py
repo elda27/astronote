@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
+__version__ = "0.1.0"
 
 
 def notebook_entry(func: F | None = None, **_: Any):

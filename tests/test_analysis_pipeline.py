@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from astronote.analysis import analyze_python_file, resolve_parameters
+from astronote.params import build_parameter_schema, load_parameter_file, parse_cli_overrides
 
 
 SAMPLE = '''
@@ -152,3 +153,29 @@ def fn(x: int = 42, y: str = "hello") -> None:
 
     assert resolved.resolved_parameters == {"x": 42, "y": "hello"}
     assert resolved.parameter_sources == {"x": "signature_default", "y": "signature_default"}
+
+
+def test_parameter_loader_schema_and_cli_overrides(tmp_path: Path) -> None:
+    source = '''
+from astronote import notebook_entry
+
+@notebook_entry
+def fn(x: int, y: str | None = None, *, debug: bool = False) -> None:
+    pass
+'''
+    target = tmp_path / "schema.py"
+    target.write_text(source, encoding="utf-8")
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps({"x": 1, "y": "base"}), encoding="utf-8")
+
+    ir = analyze_python_file(target)
+    loaded = load_parameter_file(ir, entrypoint="fn", parameter_file=params)
+    schema = build_parameter_schema(ir.functions[0].signature, entrypoint="fn").as_dict()
+
+    assert loaded.values == {"x": 1, "y": "base"}
+    assert schema["fields"] == [
+        {"name": "x", "kind": "positional", "type": "int", "required": True, "default": None},
+        {"name": "y", "kind": "positional", "type": "str | None", "required": False, "default": None},
+        {"name": "debug", "kind": "kwonly", "type": "bool", "required": False, "default": False},
+    ]
+    assert parse_cli_overrides(['x=2', 'debug=true']) == {"x": 2, "debug": True}
