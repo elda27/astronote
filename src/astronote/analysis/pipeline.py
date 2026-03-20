@@ -53,6 +53,7 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
                 kind="positional",
                 annotation=_annotation_to_str(arg.annotation),
                 default=_expr_to_value(default),
+                has_default=default is not None,
             ),
         )
 
@@ -62,6 +63,7 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
                 name=node.args.vararg.arg,
                 kind="vararg",
                 annotation=_annotation_to_str(node.args.vararg.annotation),
+                has_default=False,
             ),
         )
 
@@ -72,6 +74,7 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
                 kind="kwonly",
                 annotation=_annotation_to_str(arg.annotation),
                 default=_expr_to_value(default),
+                has_default=default is not None,
             ),
         )
 
@@ -81,6 +84,7 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
                 name=node.args.kwarg.arg,
                 kind="kwarg",
                 annotation=_annotation_to_str(node.args.kwarg.annotation),
+                has_default=False,
             ),
         )
 
@@ -196,7 +200,7 @@ def resolve_parameters(
         if arg.name in file_parameters:
             resolved_parameters[arg.name] = file_parameters[arg.name]
             sources[arg.name] = "parameter_json"
-        if arg.default is not None and arg.name not in resolved_parameters:
+        if arg.has_default and arg.name not in resolved_parameters:
             resolved_parameters[arg.name] = arg.default
             sources[arg.name] = "signature_default"
         if arg.name in overrides:

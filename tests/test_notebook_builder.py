@@ -7,6 +7,16 @@ def test_builder_outputs_required_cells_and_metadata() -> None:
         "parameter_path": "params/dev.yaml",
         "parameters_source": "run_date = '2026-03-20'\nmode = 'dev'\n",
         "generated_at": "2026-03-20T00:00:00Z",
+        "manifest": {
+            "source_path": "pipelines/example.py",
+            "entrypoint": "main",
+            "generated_at": "2026-03-20T00:00:00Z",
+            "tool_version": "0.1.0",
+            "parameter_file": "params/dev.yaml",
+            "parameters": {"run_date": "2026-03-20", "mode": "dev"},
+            "parameter_sources": {"run_date": "parameter_json", "mode": "parameter_json"},
+            "parameter_schema": {"entrypoint": "main", "fields": []},
+        },
         "execution": {
             "source_import": "from pipelines.example import main\n",
             "entrypoint_call": "main(run_date=run_date, mode=mode)\n",
@@ -35,6 +45,7 @@ def test_builder_outputs_required_cells_and_metadata() -> None:
         "read_only": True,
         "source_script": "pipelines/example.py",
         "parameter_file": "params/dev.yaml",
+        "manifest": resolved_ir["manifest"],
         "extra": {"team": "data-platform"},
     }
 
@@ -53,6 +64,7 @@ def test_builder_outputs_required_cells_and_metadata() -> None:
     assert cells[3]["source"] == ["from pipelines.example import main\n"]
     assert cells[4]["source"] == ["main(run_date=run_date, mode=mode)\n"]
     assert "READ_ONLY = True" in "".join(cells[5]["source"])
+    assert "MANIFEST = {'source_path': 'pipelines/example.py'" in "".join(cells[5]["source"])
 
 
 def test_builder_supports_attribute_based_resolved_ir() -> None:
