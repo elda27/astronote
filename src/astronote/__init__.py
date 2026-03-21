@@ -14,5 +14,3 @@ def main(argv: list[str] | None = None) -> int:
     from astronote.cli import main as cli_main
 
     return cli_main(argv)
-    return cli_main(argv)
-    return cli_main(argv)
