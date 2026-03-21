@@ -669,7 +669,9 @@ def test_generate_notebook_rejects_unimported_python_file_paths(
         encoding="utf-8",
     )
     unused_file = tmp_path / "other.py"
-    unused_file.write_text("def value() -> str:\n    return 'unused'\n", encoding="utf-8")
+    unused_file.write_text(
+        "def value() -> str:\n    return 'unused'\n", encoding="utf-8"
+    )
 
     analysis = analyze_source(str(source))
     entrypoint = choose_entrypoint(analysis, None)
