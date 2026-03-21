@@ -42,3 +42,22 @@ Generation flow:
 2. Signature defaults fill in missing optional arguments.
 3. `--override KEY=JSON` applies last and wins over the parameter file.
 4. The emitted notebook metadata stores a manifest containing the resolved parameters, source path, entrypoint, generated timestamp, tool version, and a simplified parameter schema.
+
+
+## Module expansion
+
+Use `--expand-module MODULE` to inline a local dependency directly into the generated notebook source when the source script imports sibling modules.
+
+```bash
+astronote examples/example_multiple_file.py --expand-module sub_module
+```
+
+`--expand-module` accepts module names only. The value must exactly match the import string used in the source.
+
+For `from sub_mod import func`, pass `--expand-module sub_mod`. For `from pkg import sub_mod`, pass `--expand-module pkg.sub_mod`.
+
+For example, `sub_module` and `.sub_module` are treated as different values.
+
+Relative import targets such as `.sub_module` are still unsupported as direct `--expand-module` values. Rewrite them to absolute imports before passing them on the CLI.
+
+astronote recursively expands local dependencies imported by any requested module. Repeat `--expand-module` only when the source script itself imports multiple top-level local modules that should be embedded.

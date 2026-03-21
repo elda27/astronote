@@ -7,7 +7,6 @@ from typing import Any
 
 from astronote._model import FrozenModel
 
-
 GENERATED_CELL_METADATA_KEY = "astronote"
 GENERATED_NOTEBOOK_VERSION = 1
 
@@ -36,8 +35,8 @@ def _module_from_path(script_path: str | None) -> str | None:
 
 def _sanitize_cell_id(cell_id: str) -> str:
     """Produce an nbformat-compatible cell id (max 64 chars, [a-zA-Z0-9_-] only)."""
-    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', cell_id)
-    sanitized = re.sub(r'-{2,}', '-', sanitized).strip('-')
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", cell_id)
+    sanitized = re.sub(r"-{2,}", "-", sanitized).strip("-")
     return sanitized[:64] or "cell"
 
 
@@ -52,9 +51,35 @@ def _normalize_lines(source: str | list[str]) -> list[str]:
     return [source]
 
 
+def _normalize_optional_source(source: Any) -> str | None:
+    if source is None:
+        return None
+    if isinstance(source, list):
+        text = "".join(str(line) for line in source)
+    else:
+        text = str(source)
+    return text if text.strip() else None
+
+
+def _normalize_source_definitions(sources: Any, source: Any = None) -> list[str]:
+    if sources is not None:
+        candidates = list(sources) if isinstance(sources, (list, tuple)) else [sources]
+        normalized_sources = [
+            normalized
+            for candidate in candidates
+            if (normalized := _normalize_optional_source(candidate)) is not None
+        ]
+        return normalized_sources
+
+    normalized_source = _normalize_optional_source(source)
+    return [normalized_source] if normalized_source is not None else []
+
+
 class _ResolvedNotebookConfig(FrozenModel):
     script_path: str | None
     parameter_path: str | None
+    runtime_setup_source: str | None
+    source_definitions: list[str]
     source_import: str | None
     entrypoint_call: str
     parameters_source: str | None
@@ -101,18 +126,45 @@ class _ResolvedNotebookConfig(FrozenModel):
                 "params_path",
                 default=None,
             ),
-            source_import=_read_field(
-                execution,
-                "source_import",
-                "import_source",
-                default=None,
-            ) or _read_field(resolved_ir, "source_import", default=None),
+            runtime_setup_source=_normalize_optional_source(
+                _read_field(
+                    execution,
+                    "runtime_setup_source",
+                    default=None,
+                )
+                or _read_field(resolved_ir, "runtime_setup_source", default=None)
+            ),
+            source_definitions=_normalize_source_definitions(
+                _read_field(
+                    execution,
+                    "source_definitions",
+                    default=None,
+                )
+                or _read_field(resolved_ir, "source_definitions", default=None),
+                _read_field(
+                    execution,
+                    "source_definition",
+                    default=None,
+                )
+                or _read_field(resolved_ir, "source_definition", default=None),
+            ),
+            source_import=_normalize_optional_source(
+                _read_field(
+                    execution,
+                    "source_import",
+                    "import_source",
+                    default=None,
+                )
+                or _read_field(resolved_ir, "source_import", default=None)
+            ),
             entrypoint_call=entrypoint_call,
-            parameters_source=_read_field(
-                resolved_ir,
-                "parameters_source",
-                "parameter_source",
-                default=None,
+            parameters_source=_normalize_optional_source(
+                _read_field(
+                    resolved_ir,
+                    "parameters_source",
+                    "parameter_source",
+                    default=None,
+                )
             ),
             generated_at=_read_field(
                 resolved_ir,
@@ -160,11 +212,14 @@ class NotebookBuilder:
         }
 
     def build_json(self, resolved_ir: Any, *, indent: int = 2) -> str:
-        return json.dumps(
-            self.build(resolved_ir),
-            ensure_ascii=False,
-            indent=indent,
-        ) + "\n"
+        return (
+            json.dumps(
+                self.build(resolved_ir),
+                ensure_ascii=False,
+                indent=indent,
+            )
+            + "\n"
+        )
 
     def _build_metadata(self, config: _ResolvedNotebookConfig) -> dict[str, Any]:
         metadata: dict[str, Any] = {
@@ -196,6 +251,15 @@ class NotebookBuilder:
         cells: list[dict[str, Any]] = []
         source_module = _module_from_path(config.script_path)
 
+        cells.append(
+            self._markdown_cell(
+                self._generated_header_source(config),
+                cell_id="generated-header",
+                cell_role="generated_header",
+                source_module=source_module,
+            )
+        )
+
         for index, markdown_source in enumerate(config.markdown_cells):
             cells.append(
                 self._markdown_cell(
@@ -206,12 +270,12 @@ class NotebookBuilder:
                 )
             )
 
-        if config.script_first and config.script_path:
+        if config.runtime_setup_source:
             cells.append(
-                self._markdown_cell(
-                    f"> Generated from `{config.script_path}`.\n",
-                    cell_id="script-reference",
-                    cell_role="script_reference",
+                self._code_cell(
+                    config.runtime_setup_source,
+                    cell_id="runtime-setup",
+                    cell_role="runtime_setup",
                     source_module=source_module,
                 )
             )
@@ -230,7 +294,23 @@ class NotebookBuilder:
                 )
             )
 
-        if config.source_import:
+        if config.source_definitions:
+            multiple_source_definitions = len(config.source_definitions) > 1
+            for index, source_definition in enumerate(config.source_definitions):
+                cell_id = (
+                    f"source-definition-{index}"
+                    if multiple_source_definitions
+                    else "source-definition"
+                )
+                cells.append(
+                    self._code_cell(
+                        source_definition,
+                        cell_id=cell_id,
+                        cell_role="source_definition",
+                        source_module=source_module,
+                    )
+                )
+        elif config.source_import:
             cells.append(
                 self._code_cell(
                     config.source_import,
@@ -248,26 +328,19 @@ class NotebookBuilder:
                 source_module=source_module,
             )
         )
-        cells.append(
-            self._code_cell(
-                self._generated_metadata_source(config),
-                cell_id="generated-metadata",
-                cell_role="generated_metadata",
-                source_module=source_module,
-            )
-        )
         return cells
 
-    def _generated_metadata_source(self, config: _ResolvedNotebookConfig) -> str:
-        lines = [
-            "# Generated by Astronote",
-            f"SCRIPT_FIRST = {config.script_first!r}",
-            f"READ_ONLY = {config.read_only!r}",
-            f"SOURCE_SCRIPT = {config.script_path!r}",
-            f"PARAMETER_FILE = {config.parameter_path!r}",
-            f"GENERATED_AT = {config.generated_at!r}",
-            f"MANIFEST = {config.manifest!r}",
-        ]
+    def _generated_header_source(self, config: _ResolvedNotebookConfig) -> str:
+        lines = ["# Generated by Astronote", ""]
+        if config.script_path:
+            lines.append(f"- Source: `{config.script_path}`")
+        entrypoint = config.manifest.get("entrypoint")
+        if entrypoint:
+            lines.append(f"- Entrypoint: `{entrypoint}`")
+        if config.generated_at:
+            lines.append(f"- Generated at: `{config.generated_at}`")
+        if config.parameter_path:
+            lines.append(f"- Parameter file: `{config.parameter_path}`")
         return "\n".join(lines) + "\n"
 
     def _full_cell_id(

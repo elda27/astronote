@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
-
-class FrozenModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+from astronote._model import FrozenModel
 
 
 class SourceLocation(FrozenModel):
