@@ -7,12 +7,14 @@ import pytest
 
 from astronote.cli import (
     AnalysisError,
+    CliError,
     EntrypointSelectionError,
     ModuleExpansionError,
     analyze_source,
     build_parser,
     choose_entrypoint,
     generate_notebook,
+    resolve_cli_args,
 )
 
 SOURCE = """
@@ -41,7 +43,118 @@ def test_cli_help_mentions_parameter_file() -> None:
 
     assert "--parameter-file" in help_text
     assert "--expand-module" in help_text
+    assert "--embed-file" in help_text
     assert "--show-schema" in help_text
+
+
+def test_resolve_cli_args_reads_pyproject_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(SOURCE, encoding="utf-8")
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps({"alpha": 3}), encoding="utf-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.astronote]\n"
+        'source = "sample.py"\n'
+        'parameter_file = "params.json"\n'
+        "override = ['beta=\"from_pyproject\"']\n"
+        'entrypoint = "run"\n'
+        'expand_module = ["sub_mod"]\n'
+        'embed_file = ["sub_mod.py"]\n'
+        'output = "dist/out.ipynb"\n'
+        "show_analysis = true\n"
+        "show_schema = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    args = resolve_cli_args([])
+
+    assert args.source == str(source.resolve())
+    assert args.parameter_file == params.resolve()
+    assert args.override == ['beta="from_pyproject"']
+    assert args.entrypoint == "run"
+    assert args.expand_module == ["sub_mod"]
+    assert args.embed_file == ["sub_mod.py"]
+    assert args.output == (tmp_path / "dist" / "out.ipynb").resolve()
+    assert args.show_analysis is True
+    assert args.show_schema is True
+
+
+def test_resolve_cli_args_prefers_cli_values_over_pyproject(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(SOURCE, encoding="utf-8")
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps({"alpha": 3}), encoding="utf-8")
+    cli_params = tmp_path / "cli.json"
+    cli_params.write_text(json.dumps({"alpha": 9}), encoding="utf-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.astronote]\n"
+        'source = "sample.py"\n'
+        'parameter_file = "params.json"\n'
+        "override = ['beta=\"from_pyproject\"']\n"
+        'entrypoint = "run"\n'
+        'expand_module = ["sub_mod"]\n'
+        'embed_file = ["sub_mod.py"]\n'
+        'output = "dist/out.ipynb"\n'
+        "show_analysis = true\n"
+        "show_schema = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    args = resolve_cli_args(
+        [
+            str(source),
+            "--parameter-file",
+            str(cli_params),
+            "--override",
+            'beta="from_cli"',
+            "--entrypoint",
+            "cli_run",
+            "--expand-module",
+            "other_mod",
+            "--embed-file",
+            "other_mod.py",
+            "--output",
+            str(tmp_path / "cli.ipynb"),
+            "--show-analysis",
+            "--show-schema",
+        ]
+    )
+
+    assert args.source == str(source)
+    assert args.parameter_file == cli_params
+    assert args.override == ['beta="from_pyproject"', 'beta="from_cli"']
+    assert args.entrypoint == "cli_run"
+    assert args.expand_module == ["sub_mod", "other_mod"]
+    assert args.embed_file == ["sub_mod.py", "other_mod.py"]
+    assert args.output == tmp_path / "cli.ipynb"
+    assert args.show_analysis is True
+    assert args.show_schema is True
+
+
+def test_resolve_cli_args_requires_source_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(CliError, match="determine a source target"):
+        resolve_cli_args(["--show-schema"])
+
+
+def test_resolve_cli_args_reports_missing_source_without_cli_or_pyproject(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(CliError, match="determine a source target"):
+        resolve_cli_args([])
 
 
 def test_analyze_source_rejects_non_python_file(tmp_path: Path) -> None:
@@ -187,6 +300,47 @@ def test_generate_notebook_expands_requested_modules(tmp_path: Path) -> None:
     assert "print(get_hello_world())" in main_definition
     assert "notebook_entry" not in main_definition
     assert notebook["cells"][3]["source"] == ["main()\n"]
+
+
+def test_generate_notebook_expands_requested_python_file_paths(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "example_multiple_file.py"
+    source.write_text(
+        "import sub_mod\n\n"
+        "from astronote import notebook_entry\n\n"
+        "@notebook_entry\n"
+        "def main() -> None:\n"
+        "    print(sub_mod.get_hello_world())\n",
+        encoding="utf-8",
+    )
+    module_file = tmp_path / "sub_mod.py"
+    module_file.write_text(
+        "def get_hello_world() -> str:\n" "    return 'Hello from file path!'\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_source(str(source))
+    entrypoint = choose_entrypoint(analysis, None)
+    generate_notebook(
+        analysis,
+        entrypoint,
+        None,
+        [],
+        tmp_path / "example_multiple_file.ipynb",
+        embed_files=["sub_mod.py"],
+    )
+
+    notebook = json.loads(
+        (tmp_path / "example_multiple_file.ipynb").read_text(encoding="utf-8")
+    )
+    module_definition = "".join(notebook["cells"][1]["source"])
+    main_definition = "".join(notebook["cells"][2]["source"])
+
+    assert f"# Embedded from: {module_file.resolve()}" in module_definition
+    assert "Hello from file path!" in module_definition
+    assert "import sub_mod" not in main_definition
+    assert "print(get_hello_world())" in main_definition
 
 
 def test_generate_notebook_rewrites_expanded_alias_imports(tmp_path: Path) -> None:
@@ -495,6 +649,42 @@ def test_generate_notebook_suggests_closest_expand_module_name(tmp_path: Path) -
             [],
             tmp_path / "example_multiple_file.ipynb",
             expand_modules=["sub_module"],
+        )
+
+
+def test_generate_notebook_rejects_unimported_python_file_paths(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "example_multiple_file.py"
+    source.write_text(
+        "import sub_mod\n\n"
+        "from astronote import notebook_entry\n\n"
+        "@notebook_entry\n"
+        "def main() -> None:\n"
+        "    print(sub_mod.get_hello_world())\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sub_mod.py").write_text(
+        "def get_hello_world() -> str:\n" "    return 'Hello, world!'\n",
+        encoding="utf-8",
+    )
+    unused_file = tmp_path / "other.py"
+    unused_file.write_text("def value() -> str:\n    return 'unused'\n", encoding="utf-8")
+
+    analysis = analyze_source(str(source))
+    entrypoint = choose_entrypoint(analysis, None)
+
+    with pytest.raises(
+        ModuleExpansionError,
+        match=r"did not match any imported local module",
+    ):
+        generate_notebook(
+            analysis,
+            entrypoint,
+            None,
+            [],
+            tmp_path / "example_multiple_file.ipynb",
+            embed_files=[str(unused_file)],
         )
 
 

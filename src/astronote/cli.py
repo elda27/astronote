@@ -12,6 +12,7 @@ from astronote.analysis.resolver import (
     build_import_alias_map,
     resolve_notebook_entry_decorator,
 )
+from astronote.config import PyprojectConfigError, load_pyproject_cli_options
 from astronote.manifest import build_manifest
 from astronote.notebook import NotebookBuilder
 from astronote.params import (
@@ -46,7 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="astronote",
         description="Analyze a Python source target and emit a notebook scaffold.",
     )
-    parser.add_argument("source", help="Python source script path to analyze.")
+    parser.add_argument(
+        "source",
+        nargs="?",
+        help="Python source script path to analyze.",
+    )
     parser.add_argument(
         "--parameter-file",
         type=Path,
@@ -55,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--override",
         action="append",
-        default=[],
+        default=None,
         metavar="KEY=JSON",
         help="Override a parameter value from the parameter file. Later overrides win.",
     )
@@ -66,9 +71,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--expand-module",
         nargs="+",
-        default=[],
+        default=None,
         metavar="MODULE",
         help="Expand a local module directly into the generated notebook source. Use the exact import string from the source. Local dependencies of expanded modules are embedded automatically.",
+    )
+    parser.add_argument(
+        "--embed-file",
+        nargs="+",
+        default=None,
+        metavar="FILE",
+        help="Embed an imported local .py file directly into the generated notebook source.",
     )
     parser.add_argument(
         "--output",
@@ -78,11 +90,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--show-analysis",
         action="store_true",
+        default=None,
         help="Print static analysis details before notebook generation.",
     )
     parser.add_argument(
         "--show-schema",
         action="store_true",
+        default=None,
         help="Print the simplified parameter schema for the selected entrypoint before notebook generation.",
     )
     return parser
@@ -90,6 +104,40 @@ def build_parser() -> argparse.ArgumentParser:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return build_parser().parse_args(argv)
+
+
+def resolve_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    args = parse_args(argv)
+    pyproject_options = load_pyproject_cli_options(args.source)
+
+    source = args.source
+    if source is None and pyproject_options.source is not None:
+        source = str(pyproject_options.source)
+
+    if source is None:
+        raise CliError(
+            "Failed to determine a source target: pass SOURCE on the CLI or set [tool.astronote].source in pyproject.toml."
+        )
+
+    return argparse.Namespace(
+        source=source,
+        parameter_file=args.parameter_file or pyproject_options.parameter_file,
+        override=[*pyproject_options.override, *(args.override or [])],
+        entrypoint=args.entrypoint or pyproject_options.entrypoint,
+        expand_module=[*pyproject_options.expand_module, *(args.expand_module or [])],
+        embed_file=[*pyproject_options.embed_file, *(args.embed_file or [])],
+        output=args.output or pyproject_options.output,
+        show_analysis=(
+            args.show_analysis
+            if args.show_analysis is not None
+            else pyproject_options.show_analysis or False
+        ),
+        show_schema=(
+            args.show_schema
+            if args.show_schema is not None
+            else pyproject_options.show_schema or False
+        ),
+    )
 
 
 def analyze_source(source: str) -> dict[str, Any]:
@@ -209,6 +257,79 @@ def _ordered_import_targets(source_file: Path) -> list[str]:
 
 def _import_target_names(source_file: Path) -> set[str]:
     return set(_ordered_import_targets(source_file))
+
+
+def _resolve_embed_file_request(source_file: Path, file_path: str) -> Path:
+    requested_path = Path(file_path)
+    if requested_path.suffix != ".py":
+        raise ModuleExpansionError(
+            f"Failed to embed file '{file_path}': expected a .py file path. "
+            "Next step: pass a local Python source file path to --embed-file."
+        )
+
+    if requested_path.is_absolute():
+        resolved_path = requested_path.resolve()
+        if resolved_path.is_file():
+            return resolved_path
+        raise ModuleExpansionError(
+            f"Failed to embed file '{file_path}': expected an existing local .py file. "
+            "Next step: pass a valid file path to --embed-file."
+        )
+
+    candidate_roots = [Path.cwd(), source_file.parent]
+    seen_paths: set[Path] = set()
+    for root in candidate_roots:
+        candidate = (root / requested_path).resolve()
+        if candidate in seen_paths:
+            continue
+        seen_paths.add(candidate)
+        if candidate.is_file():
+            return candidate
+
+    raise ModuleExpansionError(
+        f"Failed to embed file '{file_path}': expected an existing local .py file. "
+        "Next step: pass a valid file path to --embed-file."
+    )
+
+
+def _matching_import_targets_for_path(
+    source_file: Path,
+    requested_path: Path,
+) -> list[str]:
+    matches: list[str] = []
+    for import_target in _ordered_import_targets(source_file):
+        resolved_local_module = _resolve_local_module_path(source_file, import_target)
+        if resolved_local_module is None:
+            continue
+        module_path, _ = resolved_local_module
+        if module_path == requested_path:
+            matches.append(import_target)
+    return matches
+
+
+def _normalize_embed_file_request(source_file: Path, file_path: str) -> str:
+    requested_path = _resolve_embed_file_request(source_file, file_path)
+    matches = _matching_import_targets_for_path(source_file, requested_path)
+    if matches:
+        return matches[0]
+
+    detected_targets = ", ".join(sorted(_import_target_names(source_file))) or "none"
+    raise ModuleExpansionError(
+        f"Failed to embed file '{file_path}': '{requested_path}' did not match any imported local module in '{source_file}'. "
+        f"Detected import targets: {detected_targets}. Next step: pass a .py path for an imported local module."
+    )
+
+
+def _combine_expand_requests(
+    source_file: Path,
+    expand_modules: list[str],
+    embed_files: list[str],
+) -> list[str]:
+    normalized_embed_files = [
+        _normalize_embed_file_request(source_file, file_path)
+        for file_path in embed_files
+    ]
+    return [*expand_modules, *normalized_embed_files]
 
 
 def _resolve_local_module_path(
@@ -862,6 +983,7 @@ def build_notebook_payload(
     overrides: list[str],
     *,
     expand_modules: list[str] | None = None,
+    embed_files: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         parsed_overrides = parse_cli_overrides(overrides)
@@ -876,9 +998,14 @@ def build_notebook_payload(
 
     manifest = build_manifest(str(analysis["file_path"]), parameter_resolution)
     parameters = manifest.parameters
-    source_definitions = _expanded_sources_for_notebook(
+    expansion_requests = _combine_expand_requests(
         analysis["file_path"],
         expand_modules or [],
+        embed_files or [],
+    )
+    source_definitions = _expanded_sources_for_notebook(
+        analysis["file_path"],
+        expansion_requests,
     )
     assignment_lines = [f"{name} = {parameters[name]!r}" for name in parameters]
     parameters_source: str | None = "\n".join(assignment_lines)
@@ -932,6 +1059,7 @@ def generate_notebook(
     output_path: Path | None,
     *,
     expand_modules: list[str] | None = None,
+    embed_files: list[str] | None = None,
 ) -> Path:
     destination = output_path or default_output_path(analysis["file_path"])
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -941,6 +1069,7 @@ def generate_notebook(
         parameter_file,
         overrides,
         expand_modules=expand_modules,
+        embed_files=embed_files,
     )
     destination.write_text(
         json.dumps(notebook, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -949,8 +1078,8 @@ def generate_notebook(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
     try:
+        args = resolve_cli_args(argv)
         analysis = analyze_source(args.source)
         if args.show_analysis:
             print(render_analysis(analysis))
@@ -974,10 +1103,13 @@ def main(argv: list[str] | None = None) -> int:
             args.override,
             args.output,
             expand_modules=args.expand_module,
+            embed_files=args.embed_file,
         )
     except CliError as exc:
         raise SystemExit(str(exc)) from exc
     except ParameterFileError as exc:
+        raise SystemExit(str(exc)) from exc
+    except PyprojectConfigError as exc:
         raise SystemExit(str(exc)) from exc
 
     print(f"Notebook written to {output_path}")
