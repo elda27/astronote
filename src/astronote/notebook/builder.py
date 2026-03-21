@@ -93,7 +93,7 @@ class _ResolvedNotebookConfig(FrozenModel):
     markdown_cells: list[str]
 
     @classmethod
-    def from_resolved_ir(cls, resolved_ir: Any) -> _ResolvedNotebookConfig:
+    def from_resolved_ir(cls, resolved_ir: Any) -> "_ResolvedNotebookConfig":
         notebook = _read_field(resolved_ir, "notebook", default={}) or {}
         metadata = _read_field(notebook, "metadata", default={}) or {}
         execution = _read_field(resolved_ir, "execution", default={}) or {}

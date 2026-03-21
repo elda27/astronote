@@ -39,7 +39,7 @@ def test_build_manifest_includes_resolution_metadata(
         parameter_file=params,
         cli_overrides={"beta": "override"},
     )
-    monkeypatch.setattr(manifest_module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(manifest_module, "datetime", FrozenDateTime)  # type:ignore
 
     manifest = build_manifest(str(source.resolve()), resolution)
 

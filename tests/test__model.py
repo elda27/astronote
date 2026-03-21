@@ -10,7 +10,7 @@ class ExampleModel(FrozenModel):
 
 def test_frozen_model_forbids_extra_fields() -> None:
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ExampleModel(name="demo", extra="value")
+        ExampleModel(name="demo", extra="value")  # type:ignore
 
 
 def test_frozen_model_is_immutable() -> None:
