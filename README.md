@@ -65,4 +65,3 @@ show_schema = true
 
 With that configuration, `astronote` can be run without repeating those options on the command line.
 
-

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,14 +10,13 @@ from astronote.analysis import analyze_python_file
 from astronote.manifest import Manifest, build_manifest
 from astronote.params import resolve_entrypoint_parameters
 
-
-SOURCE = '''
+SOURCE = """
 from astronote import notebook_entry
 
 @notebook_entry
 def run(alpha: int, beta: str = "x") -> None:
     return None
-'''
+"""
 
 
 class FrozenDateTime(datetime):
@@ -28,7 +25,9 @@ class FrozenDateTime(datetime):
         return cls(2026, 3, 20, 1, 2, 3, tzinfo=tz or timezone.utc)
 
 
-def test_build_manifest_includes_resolution_metadata(monkeypatch: object, tmp_path: Path) -> None:
+def test_build_manifest_includes_resolution_metadata(
+    monkeypatch: object, tmp_path: Path
+) -> None:
     source = tmp_path / "sample.py"
     source.write_text(SOURCE, encoding="utf-8")
     params = tmp_path / "params.json"
@@ -60,8 +59,20 @@ def test_build_manifest_includes_resolution_metadata(monkeypatch: object, tmp_pa
         "parameter_schema": {
             "entrypoint": "run",
             "fields": [
-                {"name": "alpha", "kind": "positional", "type": "int", "required": True, "default": None},
-                {"name": "beta", "kind": "positional", "type": "str", "required": False, "default": "x"},
+                {
+                    "name": "alpha",
+                    "kind": "positional",
+                    "type": "int",
+                    "required": True,
+                    "default": None,
+                },
+                {
+                    "name": "beta",
+                    "kind": "positional",
+                    "type": "str",
+                    "required": False,
+                    "default": "x",
+                },
             ],
         },
     }

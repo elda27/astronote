@@ -1,27 +1,28 @@
 [project]
 name = "astronote"
-version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "elda27", email = "kaz.birstick@gmail.com" }
-]
+authors = [{ name = "elda27", email = "kaz.birstick@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = [
-    "nbformat>=5.10.4",
-    "pydantic>=2.12.5",
-]
+dependencies = ["nbformat>=5.10.4", "pydantic>=2.12.5"]
+
+# dynamic version will be set by uv-dynamic-versioning
+# version = "0.0.0"
+dynamic = ["version"]
 
 [project.scripts]
 astronote = "astronote.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.9.15,<0.10.0"]
-build-backend = "uv_build"
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+enable = true
+fallback-version = "0.0.0"
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "ruff>=0.15.7",
-    "ty>=0.0.24",
-]
+dev = ["pytest>=9.0.2", "ruff>=0.15.7", "ty>=0.0.24"]

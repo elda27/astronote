@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import ast
 
 import pytest
@@ -14,7 +12,11 @@ from astronote.analysis.resolver import (
 
 
 def _function_from_module(module: ast.Module) -> ast.FunctionDef | ast.AsyncFunctionDef:
-    return next(node for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)))
+    return next(
+        node
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
 
 
 def test_build_import_alias_map_collects_import_and_from_aliases() -> None:
@@ -79,5 +81,7 @@ def test_import_alias_map_resolve_expr_rejects_non_name_or_attribute() -> None:
     alias_map = ImportAliasMap()
     expr = ast.parse("factory()", mode="eval").body
 
-    with pytest.raises(DecoratorResolutionError, match="Unsupported decorator expression"):
+    with pytest.raises(
+        DecoratorResolutionError, match="Unsupported decorator expression"
+    ):
         alias_map.resolve_expr(expr)

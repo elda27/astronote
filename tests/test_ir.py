@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pydantic import BaseModel
 
 from astronote._model import FrozenModel
@@ -65,7 +63,9 @@ def test_resolved_ir_wraps_nested_static_models() -> None:
         ],
         is_entrypoint=True,
     )
-    unsupported = UnsupportedCase(message="Star imports are unsupported.", location=location)
+    unsupported = UnsupportedCase(
+        message="Star imports are unsupported.", location=location
+    )
     static_ir = StaticIR(
         module_path="sample.py",
         import_aliases={"entry": "astronote.notebook_entry"},

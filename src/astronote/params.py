@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Any
@@ -58,11 +56,15 @@ def _function_for_entrypoint(static_ir: StaticIR, entrypoint: str):
     if function is None:
         raise ParameterFileError(f"Entrypoint {entrypoint!r} was not found.")
     if not function.is_entrypoint:
-        raise ParameterFileError(f"Function {entrypoint!r} is not marked as an entrypoint.")
+        raise ParameterFileError(
+            f"Function {entrypoint!r} is not marked as an entrypoint."
+        )
     return function
 
 
-def build_parameter_schema(signature: FunctionSignatureIR, *, entrypoint: str) -> ParameterSchema:
+def build_parameter_schema(
+    signature: FunctionSignatureIR, *, entrypoint: str
+) -> ParameterSchema:
     return ParameterSchema(
         entrypoint=entrypoint,
         fields=[
@@ -93,7 +95,9 @@ def load_parameter_file(
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ParameterFileError("Parameter JSON must decode to an object.")
-    return LoadedParameters(values=payload, source_path=str(path), parameter_schema=schema)
+    return LoadedParameters(
+        values=payload, source_path=str(path), parameter_schema=schema
+    )
 
 
 def parse_cli_overrides(overrides: list[str]) -> dict[str, Any]:
@@ -107,7 +111,9 @@ def parse_cli_overrides(overrides: list[str]) -> dict[str, Any]:
         try:
             parsed[key] = json.loads(raw_value)
         except json.JSONDecodeError as exc:
-            raise ParameterFileError(f"Override {override!r} is not valid JSON.") from exc
+            raise ParameterFileError(
+                f"Override {override!r} is not valid JSON."
+            ) from exc
     return parsed
 
 
@@ -120,7 +126,9 @@ def resolve_entrypoint_parameters(
 ) -> ParameterResolution:
     from astronote.analysis.pipeline import resolve_parameters
 
-    loaded = load_parameter_file(static_ir, entrypoint=entrypoint, parameter_file=parameter_file)
+    loaded = load_parameter_file(
+        static_ir, entrypoint=entrypoint, parameter_file=parameter_file
+    )
     overrides = cli_overrides or {}
     resolved_ir = resolve_parameters(
         static_ir,

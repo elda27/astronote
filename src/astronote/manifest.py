@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -14,7 +12,9 @@ class Manifest(FrozenModel):
     generated_at: str
     tool_version: str
     parameters: dict[str, Any]
-    parameter_sources: dict[str, Literal["cli_override", "parameter_json", "signature_default"]]
+    parameter_sources: dict[
+        str, Literal["cli_override", "parameter_json", "signature_default"]
+    ]
     parameter_file: str | None
     parameter_schema: dict[str, Any]
 
@@ -27,7 +27,10 @@ def build_manifest(source_path: str, resolution: ParameterResolution) -> Manifes
     return Manifest(
         source_path=source_path,
         entrypoint=resolved_ir.entrypoint_name,
-        generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        generated_at=datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
         tool_version=__version__,
         parameter_file=resolution.parameter_file,
         parameters=resolved_ir.resolved_parameters,

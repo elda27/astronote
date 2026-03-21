@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import ast
 import json
 from pathlib import Path
@@ -41,10 +39,14 @@ def _expr_to_value(node: ast.expr | None) -> Any:
         return ast.unparse(node)
 
 
-def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSignatureIR:
+def _build_signature(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> FunctionSignatureIR:
     args: list[FunctionArgIR] = []
     positional = [*node.args.posonlyargs, *node.args.args]
-    positional_defaults: list[ast.expr | None] = [None] * (len(positional) - len(node.args.defaults)) + list(node.args.defaults)
+    positional_defaults: list[ast.expr | None] = [None] * (
+        len(positional) - len(node.args.defaults)
+    ) + list(node.args.defaults)
 
     for arg, default in zip(positional, positional_defaults, strict=True):
         args.append(
@@ -88,12 +90,16 @@ def _build_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> FunctionSi
             ),
         )
 
-    return FunctionSignatureIR(args=args, return_annotation=_annotation_to_str(node.returns))
+    return FunctionSignatureIR(
+        args=args, return_annotation=_annotation_to_str(node.returns)
+    )
 
 
 def analyze_python_file(path: str | Path) -> StaticIR:
     source_path = Path(path)
-    module = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    module = ast.parse(
+        source_path.read_text(encoding="utf-8"), filename=str(source_path)
+    )
     alias_map = build_import_alias_map(module)
 
     functions = []
@@ -109,7 +115,9 @@ def analyze_python_file(path: str | Path) -> StaticIR:
                     lineno=import_node.lineno,
                     end_lineno=getattr(import_node, "end_lineno", import_node.lineno),
                     col_offset=import_node.col_offset,
-                    end_col_offset=getattr(import_node, "end_col_offset", import_node.col_offset),
+                    end_col_offset=getattr(
+                        import_node, "end_col_offset", import_node.col_offset
+                    ),
                 ),
             ),
         )
@@ -136,13 +144,18 @@ def analyze_python_file(path: str | Path) -> StaticIR:
             elif resolution.kind == "unsupported":
                 unsupported.append(
                     UnsupportedCase(
-                        message=resolution.reason or "Unsupported decorator resolution.",
+                        message=resolution.reason
+                        or "Unsupported decorator resolution.",
                         location=SourceLocation(
                             path=str(source_path),
                             lineno=decorator.lineno,
-                            end_lineno=getattr(decorator, "end_lineno", decorator.lineno),
+                            end_lineno=getattr(
+                                decorator, "end_lineno", decorator.lineno
+                            ),
                             col_offset=decorator.col_offset,
-                            end_col_offset=getattr(decorator, "end_col_offset", decorator.col_offset),
+                            end_col_offset=getattr(
+                                decorator, "end_col_offset", decorator.col_offset
+                            ),
                         ),
                     ),
                 )
@@ -194,7 +207,9 @@ def resolve_parameters(
 
     overrides = cli_overrides or {}
     resolved_parameters: dict[str, Any] = {}
-    sources: dict[str, Literal["cli_override", "parameter_json", "signature_default"]] = {}
+    sources: dict[
+        str, Literal["cli_override", "parameter_json", "signature_default"]
+    ] = {}
 
     for arg in function.signature.args:
         if arg.name in file_parameters:

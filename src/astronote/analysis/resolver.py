@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import ast
 from typing import Literal
 
@@ -98,7 +96,11 @@ def resolve_notebook_entry_decorator(
         )
 
     if resolved == "astronote.notebook_entry":
-        via_alias = target.id if isinstance(target, ast.Name) and target.id != resolved else None
+        via_alias = (
+            target.id
+            if isinstance(target, ast.Name) and target.id != resolved
+            else None
+        )
         return DecoratorResolution(
             raw=ast.unparse(decorator),
             kind="entrypoint",

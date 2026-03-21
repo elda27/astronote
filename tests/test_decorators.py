@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import astronote
 from astronote.decorators import NOTEBOOK_ENTRY_ATTR, notebook_entry
 
