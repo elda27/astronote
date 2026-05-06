@@ -341,6 +341,47 @@ def test_generate_notebook_expands_requested_python_file_paths(
     assert "print(get_hello_world())" in main_definition
 
 
+def test_generate_notebook_embeds_file_imported_inside_entrypoint(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "example_multiple_file.py"
+    source.write_text(
+        "from astronote import notebook_entry\n\n"
+        "@notebook_entry\n"
+        "def main() -> None:\n"
+        "    import sub_mod\n"
+        "    print(sub_mod.get_hello_world())\n",
+        encoding="utf-8",
+    )
+    module_file = tmp_path / "sub_mod.py"
+    module_file.write_text(
+        "def get_hello_world() -> str:\n" "    return 'Hello from nested import!'\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_source(str(source))
+    entrypoint = choose_entrypoint(analysis, None)
+    generate_notebook(
+        analysis,
+        entrypoint,
+        None,
+        [],
+        tmp_path / "example_multiple_file.ipynb",
+        embed_files=["sub_mod.py"],
+    )
+
+    notebook = json.loads(
+        (tmp_path / "example_multiple_file.ipynb").read_text(encoding="utf-8")
+    )
+    module_definition = "".join(notebook["cells"][1]["source"])
+    main_definition = "".join(notebook["cells"][2]["source"])
+
+    assert f"# Embedded from: {module_file.resolve()}" in module_definition
+    assert "def get_hello_world() -> str:" in module_definition
+    assert "import sub_mod" in main_definition
+    assert "print(sub_mod.get_hello_world())" in main_definition
+
+
 def test_generate_notebook_rewrites_expanded_alias_imports(tmp_path: Path) -> None:
     source = tmp_path / "alias_multiple_file.py"
     source.write_text(

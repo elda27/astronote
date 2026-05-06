@@ -225,7 +225,7 @@ def _ordered_import_targets(source_file: Path) -> list[str]:
     targets: list[str] = []
     seen_targets: set[str] = set()
 
-    for node in module.body:
+    for node in ast.walk(module):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "astronote":

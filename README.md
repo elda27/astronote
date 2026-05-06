@@ -52,16 +52,35 @@ CLI arguments take precedence over `pyproject.toml`, and list-style options are 
 
 ```toml
 [tool.astronote]
+# Each variable can be defaulted here, and overridden on the CLI when needed.
+# Default SOURCE when you run astronote without a positional SOURCE argument.
+# If SOURCE is passed on the CLI, that CLI value is used instead.
 source = "examples/example_single_file.py"
+# Base parameter set (JSON) to run the entrypoint reproducibly.
 parameter_file = "examples/params.json"
+# Quick per-run overrides; useful for changing only a few values without editing JSON.
 override = ['beta="from_pyproject"']
+# Target function to execute when multiple @notebook_entry functions exist.
 entrypoint = "run"
+# Inline imported local modules by module name (keeps notebook self-contained).
 expand_module = ["sub_mod"]
+# Inline imported local modules by file path instead of module name.
 embed_file = ["examples/sub_mod.py"]
+# Where to save the generated notebook.
 output = "dist/example_single_file.ipynb"
+# Show dependency/expansion analysis to verify what was included.
 show_analysis = true
+# Show parameter schema/metadata to document expected inputs.
 show_schema = true
 ```
+
+Usage notes:
+
+- `source` is for the "no positional SOURCE" workflow. It lets you run `astronote` with no source argument.
+- CLI positional `SOURCE` overrides `[tool.astronote].source`.
+- Scalar options such as `parameter_file`, `entrypoint`, and `output` use CLI values when provided, otherwise `pyproject.toml` values.
+- List options (`override`, `expand_module`, `embed_file`) are merged in order: `pyproject.toml` first, then CLI values.
+- `show_analysis` and `show_schema` are enabling flags: passing CLI flags turns them on; when omitted, `pyproject.toml` values are used.
 
 With that configuration, `astronote` can be run without repeating those options on the command line.
 
