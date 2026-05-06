@@ -290,56 +290,20 @@ def _resolve_embed_file_request(source_file: Path, file_path: str) -> Path:
     )
 
 
-def _matching_import_targets_for_path(
-    source_file: Path,
-    requested_path: Path,
-) -> list[str]:
-    matches: list[str] = []
-    for import_target in _ordered_import_targets(source_file):
-        resolved_local_module = _resolve_local_module_path(source_file, import_target)
-        if resolved_local_module is None:
-            continue
-        module_path, _ = resolved_local_module
-        if module_path == requested_path:
-            matches.append(import_target)
-    return matches
-
-
-def _normalize_embed_file_request(source_file: Path, file_path: str) -> str | None:
-    """Resolve an embed-file request to an import target name.
-
-    Returns the matching import target string when the file corresponds to an
-    imported local module, or ``None`` when the file exists but is not imported
-    (it will be embedded as raw source content).
-    """
-    requested_path = _resolve_embed_file_request(source_file, file_path)
-    matches = _matching_import_targets_for_path(source_file, requested_path)
-    if matches:
-        return matches[0]
-    return None
+def _normalize_embed_file_request(source_file: Path, file_path: str) -> str:
+    return str(_resolve_embed_file_request(source_file, file_path))
 
 
 def _combine_expand_requests(
     source_file: Path,
     expand_modules: list[str],
     embed_files: list[str],
-) -> tuple[list[str], list[Path]]:
-    """Return ``(module_expansion_names, raw_file_paths)``.
-
-    Module expansion names are imported-local-module strings that go through the
-    full expansion pipeline with import rewriting.  Raw file paths are existing
-    .py files that are *not* imported by the source script and will be embedded
-    verbatim as leading source cells.
-    """
-    module_names: list[str] = list(expand_modules)
-    raw_file_paths: list[Path] = []
-    for file_path in embed_files:
-        normalized = _normalize_embed_file_request(source_file, file_path)
-        if normalized is not None:
-            module_names.append(normalized)
-        else:
-            raw_file_paths.append(_resolve_embed_file_request(source_file, file_path))
-    return module_names, raw_file_paths
+) -> list[str]:
+    normalized_embed_files = [
+        _normalize_embed_file_request(source_file, file_path)
+        for file_path in embed_files
+    ]
+    return [*expand_modules, *normalized_embed_files]
 
 
 def _resolve_local_module_path(
@@ -478,6 +442,14 @@ def _resolve_expand_modules(
         if module_name in seen_requested_names:
             continue
         seen_requested_names.add(module_name)
+
+        if module_name.endswith(".py"):
+            module_path = Path(module_name).resolve()
+            if module_path == source_file_resolved or module_path in emitted_paths:
+                continue
+            emitted_paths.add(module_path)
+            resolved_modules.append((module_name, module_path, False))
+            continue
 
         resolved_module = _resolve_expand_module(source_file, module_name)
         visit_module(*resolved_module)
@@ -969,9 +941,9 @@ def _expanded_sources_for_notebook(
     rendered_segments = [
         _annotated_embedded_source(
             module_path,
-            _source_for_notebook(module_path, expanded_module_paths),
+            _render_embedded_source(module_name, module_path, expanded_module_paths),
         )
-        for _, module_path, _ in resolved_modules
+        for module_name, module_path, _ in resolved_modules
     ]
     rendered_segments.append(
         _annotated_embedded_source(
@@ -984,6 +956,20 @@ def _expanded_sources_for_notebook(
     if not non_empty_segments:
         return None
     return non_empty_segments
+
+
+def _render_embedded_source(
+    module_name: str,
+    file_path: Path,
+    expanded_module_paths: set[Path],
+) -> str:
+    try:
+        return _source_for_notebook(file_path, expanded_module_paths)
+    except SyntaxError:
+        if not module_name.endswith(".py"):
+            raise
+        source = file_path.read_text(encoding="utf-8")
+        return source if source.endswith("\n") else source + "\n"
 
 
 def build_notebook_payload(
@@ -1008,7 +994,7 @@ def build_notebook_payload(
 
     manifest = build_manifest(str(analysis["file_path"]), parameter_resolution)
     parameters = manifest.parameters
-    expansion_requests, raw_embed_files = _combine_expand_requests(
+    expansion_requests = _combine_expand_requests(
         analysis["file_path"],
         expand_modules or [],
         embed_files or [],
@@ -1017,24 +1003,6 @@ def build_notebook_payload(
         analysis["file_path"],
         expansion_requests,
     )
-    if raw_embed_files:
-        raw_segments = [
-            _annotated_embedded_source(p, p.read_text(encoding="utf-8"))
-            for p in raw_embed_files
-        ]
-        non_empty_raw = [s for s in raw_segments if s.strip()]
-        if non_empty_raw:
-            if source_definitions is not None:
-                source_definitions = non_empty_raw + source_definitions
-            else:
-                main_segment = _annotated_embedded_source(
-                    analysis["file_path"],
-                    _source_for_notebook(analysis["file_path"]),
-                )
-                all_segments = non_empty_raw + (
-                    [main_segment] if main_segment.strip() else []
-                )
-                source_definitions = all_segments or None
     assignment_lines = [f"{name} = {parameters[name]!r}" for name in parameters]
     parameters_source: str | None = "\n".join(assignment_lines)
     if parameters_source:
