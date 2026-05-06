@@ -691,9 +691,10 @@ def test_generate_notebook_suggests_closest_expand_module_name(tmp_path: Path) -
         )
 
 
-def test_generate_notebook_rejects_unimported_python_file_paths(
+def test_generate_notebook_embeds_unimported_python_file_as_raw_source(
     tmp_path: Path,
 ) -> None:
+    """Files that are not imported should be embedded verbatim as leading cells."""
     source = tmp_path / "example_multiple_file.py"
     source.write_text(
         "import sub_mod\n\n"
@@ -707,26 +708,35 @@ def test_generate_notebook_rejects_unimported_python_file_paths(
         "def get_hello_world() -> str:\n" "    return 'Hello, world!'\n",
         encoding="utf-8",
     )
-    unused_file = tmp_path / "other.py"
-    unused_file.write_text(
-        "def value() -> str:\n    return 'unused'\n", encoding="utf-8"
+    setup_file = tmp_path / "install_packages.py"
+    setup_file.write_text(
+        "import subprocess\nsubprocess.run(['pip', 'install', 'torch'], check=True)\n",
+        encoding="utf-8",
     )
 
     analysis = analyze_source(str(source))
     entrypoint = choose_entrypoint(analysis, None)
+    generate_notebook(
+        analysis,
+        entrypoint,
+        None,
+        [],
+        tmp_path / "example_multiple_file.ipynb",
+        embed_files=[str(setup_file)],
+    )
 
-    with pytest.raises(
-        ModuleExpansionError,
-        match=r"did not match any imported local module",
-    ):
-        generate_notebook(
-            analysis,
-            entrypoint,
-            None,
-            [],
-            tmp_path / "example_multiple_file.ipynb",
-            embed_files=[str(unused_file)],
-        )
+    notebook = json.loads(
+        (tmp_path / "example_multiple_file.ipynb").read_text(encoding="utf-8")
+    )
+    roles = [cell["metadata"]["astronote"]["role"] for cell in notebook["cells"]]
+
+    # setup file (raw embed) comes first, then the main script, then the entrypoint call
+    assert roles == ["generated_header", "source_definition", "source_definition", "entrypoint"]
+    first_source = "".join(notebook["cells"][1]["source"])
+    assert f"# Embedded from: {setup_file.resolve()}" in first_source
+    assert "subprocess.run" in first_source
+    second_source = "".join(notebook["cells"][2]["source"])
+    assert "def main" in second_source
 
 
 def test_generate_notebook_expands_requested_modules_in_flat_layout(
