@@ -49,7 +49,7 @@ def test_build_import_alias_map_records_unsupported_imports() -> None:
 
 def test_resolve_notebook_entry_decorator_marks_alias_call_as_entrypoint() -> None:
     module = ast.parse(
-        "from astronote import notebook_entry as entry\n\n@entry(name='daily')\ndef run():\n    pass\n",
+        "from astronote import notebook_entry as entry\n\n@entry(name='daily', save_to='daily-{run_date}')\ndef run():\n    pass\n",
     )
     alias_map = build_import_alias_map(module)
     function = _function_from_module(module)
@@ -61,6 +61,8 @@ def test_resolve_notebook_entry_decorator_marks_alias_call_as_entrypoint() -> No
     assert resolution.resolved_name == "astronote.notebook_entry"
     assert resolution.via_alias == "entry"
     assert resolution.is_call is True
+    assert resolution.name == "daily"
+    assert resolution.save_to == "daily-{run_date}"
 
 
 def test_resolve_notebook_entry_decorator_marks_reexport_as_unsupported() -> None:

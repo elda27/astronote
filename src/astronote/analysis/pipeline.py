@@ -137,6 +137,8 @@ def analyze_python_file(path: str | Path) -> StaticIR:
                 via_alias=resolution.via_alias,
                 is_call=resolution.is_call,
                 reason=resolution.reason,
+                name=resolution.name,
+                save_to=resolution.save_to,
             )
             decorators.append(decorator_ir)
             if resolution.kind == "entrypoint":

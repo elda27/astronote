@@ -8,17 +8,19 @@ def test_notebook_entry_records_default_metadata() -> None:
         return "ok"
 
     assert run() == "ok"
-    assert getattr(run, NOTEBOOK_ENTRY_ATTR) == ({"name": None},)
+    assert getattr(run, NOTEBOOK_ENTRY_ATTR) == ({"name": None, "save_to": None},)
 
 
 def test_notebook_entry_records_explicit_name_without_wrapping_callable() -> None:
     def run() -> str:
         return "ok"
 
-    decorated = notebook_entry(name="daily")(run)
+    decorated = notebook_entry(name="daily", save_to="daily-run")(run)
 
     assert decorated is run
-    assert getattr(run, NOTEBOOK_ENTRY_ATTR) == ({"name": "daily"},)
+    assert getattr(run, NOTEBOOK_ENTRY_ATTR) == (
+        {"name": "daily", "save_to": "daily-run"},
+    )
 
 
 def test_notebook_entry_appends_multiple_entry_definitions() -> None:
@@ -28,8 +30,8 @@ def test_notebook_entry_appends_multiple_entry_definitions() -> None:
         return None
 
     assert getattr(run, NOTEBOOK_ENTRY_ATTR) == (
-        {"name": None},
-        {"name": "weekly"},
+        {"name": None, "save_to": None},
+        {"name": "weekly", "save_to": None},
     )
 
 

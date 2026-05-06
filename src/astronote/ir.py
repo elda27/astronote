@@ -20,6 +20,8 @@ class DecoratorIR(FrozenModel):
     via_alias: str | None = None
     is_call: bool = False
     reason: str | None = None
+    name: str | None = None
+    save_to: str | None = None
 
 
 class FunctionArgIR(FrozenModel):

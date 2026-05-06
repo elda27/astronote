@@ -15,6 +15,23 @@ class DecoratorResolution(FrozenModel):
     reason: str | None = None
     via_alias: str | None = None
     is_call: bool = False
+    name: str | None = None
+    save_to: str | None = None
+
+
+def _extract_string_keyword(
+    decorator: ast.Call,
+    keyword_name: str,
+) -> str | None:
+    for keyword in decorator.keywords:
+        if keyword.arg != keyword_name:
+            continue
+        try:
+            value = ast.literal_eval(keyword.value)
+        except (ValueError, TypeError):
+            return None
+        return value if isinstance(value, str) else None
+    return None
 
 
 class ImportAliasMap:
@@ -107,6 +124,16 @@ def resolve_notebook_entry_decorator(
             resolved_name=resolved,
             via_alias=via_alias,
             is_call=is_call,
+            name=(
+                _extract_string_keyword(decorator, "name")
+                if isinstance(decorator, ast.Call)
+                else None
+            ),
+            save_to=(
+                _extract_string_keyword(decorator, "save_to")
+                if isinstance(decorator, ast.Call)
+                else None
+            ),
         )
 
     # Only treat as unsupported re-export when the resolved name is qualified

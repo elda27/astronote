@@ -194,6 +194,61 @@ def test_generate_notebook_writes_manifest_metadata(tmp_path: Path) -> None:
     assert meta["manifest"]["parameter_schema"]["fields"][0]["name"] == "alpha"
 
 
+def test_generate_notebook_uses_save_to_template_for_default_output_name(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "from astronote import notebook_entry\n\n"
+        "@notebook_entry(save_to=\"result-{alpha}-{settings.mode}-{'+'.join(settings.tags)}\")\n"
+        "def run(alpha: int, settings: dict[str, object]) -> None:\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    params = tmp_path / "params.json"
+    params.write_text(
+        json.dumps(
+            {
+                "alpha": 7,
+                "settings": {"mode": "fast", "tags": ["train", "eval"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    analysis = analyze_source(str(source))
+    entrypoint = choose_entrypoint(analysis, None)
+
+    output = generate_notebook(analysis, entrypoint, params, [], None)
+
+    assert output == tmp_path / "result-7-fast-train+eval.ipynb"
+    assert output.exists()
+
+
+def test_generate_notebook_prefers_explicit_output_over_save_to_template(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "from astronote import notebook_entry\n\n"
+        "@notebook_entry(save_to='result-{alpha}')\n"
+        "def run(alpha: int) -> None:\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps({"alpha": 7}), encoding="utf-8")
+    explicit_output = tmp_path / "custom.ipynb"
+
+    analysis = analyze_source(str(source))
+    entrypoint = choose_entrypoint(analysis, None)
+
+    output = generate_notebook(analysis, entrypoint, params, [], explicit_output)
+
+    assert output == explicit_output
+    assert output.exists()
+
+
 def test_generate_notebook_embeds_source_definition_without_main_guard(
     tmp_path: Path,
 ) -> None:

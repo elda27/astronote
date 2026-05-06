@@ -19,7 +19,7 @@ def calc(x: int, y: int) -> int:
     return x + y
 
 
-@notebook_entry
+@notebook_entry(save_to="example-{a}-{b}")
 def main(a: int = 10, b: int = 20) -> str:
     result = calc(a, b)
     return f"The result of calc({a}, {b}) is {result}"
@@ -35,7 +35,15 @@ And run the script with:
 astronote example.py
 ```
 
-you are able to find the generated notebook in the same directory as `example.py` with a name like `example.ipynb`.
+you are able to find the generated notebook in the same directory as `example.py` with a name like `example-10-20.ipynb`.
+
+When `save_to` is omitted, Astronote still defaults to `SOURCE.ipynb`. `save_to` strings support `{...}` expressions evaluated against the resolved entrypoint parameters, so nested parameter values also work:
+
+```python
+@notebook_entry(save_to="sft_train-set-{'+'.join(evaluation_settings.train_set)}")
+def entrypoint(training_config, evaluation_settings) -> None:
+    ...
+```
 
 To embed local helper code directly into the generated notebook instead of keeping imports, use `--expand-module` for imported module names and `--embed-file` for local `.py` paths:
 
@@ -83,4 +91,3 @@ Usage notes:
 - `show_analysis` and `show_schema` are enabling flags: passing CLI flags turns them on; when omitted, `pyproject.toml` values are used.
 
 With that configuration, `astronote` can be run without repeating those options on the command line.
-

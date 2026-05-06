@@ -40,6 +40,10 @@ class ModuleExpansionError(CliError):
     """Raised when requested module expansion cannot be resolved."""
 
 
+class OutputPathResolutionError(CliError):
+    """Raised when a notebook output path cannot be resolved."""
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="astronote",
@@ -196,6 +200,184 @@ def choose_entrypoint(analysis: dict[str, Any], requested: str | None) -> str:
 
 def default_output_path(file_path: Path) -> Path:
     return file_path.with_suffix(".ipynb")
+
+
+def _entrypoint_function(analysis: dict[str, Any], entrypoint: str) -> Any:
+    function = next(
+        (fn for fn in analysis["static_ir"].functions if fn.name == entrypoint),
+        None,
+    )
+    if function is None:
+        raise OutputPathResolutionError(
+            f"Failed to resolve an output path for '{analysis['file_path']}': entrypoint '{entrypoint}' was not found in static analysis."
+        )
+    return function
+
+
+def _entrypoint_save_to_template(
+    analysis: dict[str, Any],
+    entrypoint: str,
+) -> str | None:
+    function = _entrypoint_function(analysis, entrypoint)
+    for decorator in function.decorators:
+        if decorator.kind == "entrypoint" and decorator.save_to:
+            return decorator.save_to
+    return None
+
+
+def _evaluate_output_expression(node: ast.AST, context: dict[str, Any]) -> Any:
+    if isinstance(node, ast.Constant):
+        return node.value
+
+    if isinstance(node, ast.Name):
+        if node.id not in context:
+            raise OutputPathResolutionError(
+                f"Unknown name '{node.id}' in notebook save_to template."
+            )
+        return context[node.id]
+
+    if isinstance(node, ast.Attribute):
+        value = _evaluate_output_expression(node.value, context)
+        if isinstance(value, dict) and node.attr in value:
+            return value[node.attr]
+        raise OutputPathResolutionError(
+            f"Unsupported attribute access '{ast.unparse(node)}' in notebook save_to template."
+        )
+
+    if isinstance(node, ast.Subscript):
+        value = _evaluate_output_expression(node.value, context)
+        key = _evaluate_output_expression(node.slice, context)
+        try:
+            return value[key]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise OutputPathResolutionError(
+                f"Failed to evaluate subscript '{ast.unparse(node)}' in notebook save_to template."
+            ) from exc
+
+    if isinstance(node, ast.List):
+        return [_evaluate_output_expression(element, context) for element in node.elts]
+
+    if isinstance(node, ast.Tuple):
+        return tuple(
+            _evaluate_output_expression(element, context) for element in node.elts
+        )
+
+    if isinstance(node, ast.Set):
+        return {_evaluate_output_expression(element, context) for element in node.elts}
+
+    if isinstance(node, ast.Dict):
+        rendered_dict: dict[Any, Any] = {}
+        for key, value in zip(node.keys, node.values, strict=True):
+            if key is None:
+                raise OutputPathResolutionError(
+                    "Dictionary unpacking is unsupported in notebook save_to templates."
+                )
+            rendered_dict[_evaluate_output_expression(key, context)] = (
+                _evaluate_output_expression(value, context)
+            )
+        return rendered_dict
+
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _evaluate_output_expression(node.left, context) + _evaluate_output_expression(
+            node.right, context
+        )
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _evaluate_output_expression(node.operand, context)
+        return +operand if isinstance(node.op, ast.UAdd) else -operand
+
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        receiver = _evaluate_output_expression(node.func.value, context)
+        args = [_evaluate_output_expression(arg, context) for arg in node.args]
+        kwargs = {
+            keyword.arg: _evaluate_output_expression(keyword.value, context)
+            for keyword in node.keywords
+            if keyword.arg is not None
+        }
+        method_name = node.func.attr
+        if isinstance(receiver, str) and method_name in {
+            "join",
+            "lower",
+            "upper",
+            "strip",
+            "lstrip",
+            "rstrip",
+            "replace",
+            "removeprefix",
+            "removesuffix",
+            "title",
+        }:
+            return getattr(receiver, method_name)(*args, **kwargs)
+        raise OutputPathResolutionError(
+            f"Unsupported call '{ast.unparse(node)}' in notebook save_to template."
+        )
+
+    raise OutputPathResolutionError(
+        f"Unsupported expression '{ast.unparse(node)}' in notebook save_to template."
+    )
+
+
+def _render_output_template(template: str, parameters: dict[str, Any]) -> str:
+    parsed = ast.parse(f"f{template!r}", mode="eval")
+    if not isinstance(parsed.body, ast.JoinedStr):
+        raise OutputPathResolutionError(
+            "Notebook save_to template must be a string literal."
+        )
+
+    rendered: list[str] = []
+    for value in parsed.body.values:
+        if isinstance(value, ast.Constant):
+            rendered.append(str(value.value))
+            continue
+        if not isinstance(value, ast.FormattedValue):
+            raise OutputPathResolutionError(
+                f"Unsupported output template segment '{ast.unparse(value)}'."
+            )
+
+        expression_value = _evaluate_output_expression(value.value, parameters)
+        if value.conversion == 115:
+            expression_value = str(expression_value)
+        elif value.conversion == 114:
+            expression_value = repr(expression_value)
+        elif value.conversion == 97:
+            expression_value = ascii(expression_value)
+        if value.format_spec is not None:
+            format_spec = _render_output_template(
+                ast.unparse(value.format_spec), parameters
+            )
+            expression_value = format(expression_value, format_spec)
+        rendered.append(str(expression_value))
+
+    output_name = "".join(rendered).strip()
+    if not output_name:
+        raise OutputPathResolutionError(
+            "Notebook save_to template resolved to an empty output name."
+        )
+    return output_name
+
+
+def _resolve_output_path(
+    analysis: dict[str, Any],
+    entrypoint: str,
+    explicit_output_path: Path | None,
+    parameters: dict[str, Any],
+) -> Path:
+    if explicit_output_path is not None:
+        return explicit_output_path
+
+    template = _entrypoint_save_to_template(analysis, entrypoint)
+    if template is None:
+        return default_output_path(analysis["file_path"])
+
+    rendered = _render_output_template(template, parameters)
+    destination = Path(rendered)
+    if destination.is_absolute():
+        raise OutputPathResolutionError(
+            "Notebook save_to templates must resolve to a relative path. Use --output for absolute destinations."
+        )
+    if destination.suffix != ".ipynb":
+        destination = destination.with_suffix(".ipynb")
+    return analysis["file_path"].parent / destination
 
 
 def _validate_module_name(module_name: str) -> None:
@@ -442,6 +624,9 @@ def _resolve_expand_modules(
         if module_name in seen_requested_names:
             continue
         seen_requested_names.add(module_name)
+
+        if "=" in module_name:
+            _validate_module_name(module_name)
 
         if module_name.endswith(".py"):
             module_path = Path(module_name).resolve()
@@ -1057,9 +1242,7 @@ def generate_notebook(
     expand_modules: list[str] | None = None,
     embed_files: list[str] | None = None,
 ) -> Path:
-    destination = output_path or default_output_path(analysis["file_path"])
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    notebook, _ = build_notebook_payload(
+    notebook, manifest = build_notebook_payload(
         analysis,
         entrypoint,
         parameter_file,
@@ -1067,6 +1250,13 @@ def generate_notebook(
         expand_modules=expand_modules,
         embed_files=embed_files,
     )
+    destination = _resolve_output_path(
+        analysis,
+        entrypoint,
+        output_path,
+        manifest["parameters"],
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
         json.dumps(notebook, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

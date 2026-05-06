@@ -75,6 +75,8 @@ def test_analyze_python_file_extracts_signatures_and_entrypoints(
     assert ir.functions[0].signature.args[0].annotation == "int"
     assert ir.functions[0].signature.args[1].default == "x"
     assert ir.functions[1].decorators[0].via_alias == "entry"
+    assert ir.functions[1].decorators[0].name is None
+    assert ir.functions[1].decorators[0].save_to is None
     assert ir.functions[2].decorators[0].resolved_name == "astronote.notebook_entry"
 
 

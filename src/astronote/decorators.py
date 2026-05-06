@@ -11,7 +11,9 @@ def notebook_entry(func: F, /) -> F: ...
 
 
 @overload
-def notebook_entry(*, name: str | None = None) -> Callable[[F], F]: ...
+def notebook_entry(
+    *, name: str | None = None, save_to: str | None = None
+) -> Callable[[F], F]: ...
 
 
 def notebook_entry(
@@ -19,6 +21,7 @@ def notebook_entry(
     /,
     *,
     name: str | None = None,
+    save_to: str | None = None,
 ) -> F | Callable[[F], F]:
     """Mark a function as an Astronote notebook entrypoint.
 
@@ -29,7 +32,7 @@ def notebook_entry(
 
     def decorate(target: F) -> F:
         entries = list(getattr(target, NOTEBOOK_ENTRY_ATTR, ()))
-        entries.append({"name": name})
+        entries.append({"name": name, "save_to": save_to})
         setattr(target, NOTEBOOK_ENTRY_ATTR, tuple(entries))
         return target
 

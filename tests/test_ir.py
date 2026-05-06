@@ -59,6 +59,7 @@ def test_resolved_ir_wraps_nested_static_models() -> None:
                 raw="notebook_entry",
                 kind="entrypoint",
                 resolved_name="astronote.notebook_entry",
+                save_to="run-{alpha}",
             )
         ],
         is_entrypoint=True,
